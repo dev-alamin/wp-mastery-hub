@@ -1,4 +1,5 @@
-
-*/vendor
+/home/amin/Local Sites/shopspark/app/public/wp-content/plugins/wp-mastery-hub/vendor/
+/home/amin/Local Sites/shopspark/app/public/wp-content/plugins/wp-mastery-hub/vendor/*
 */composer.json
 */composer.lock
+/vendor/
