@@ -151,7 +151,135 @@ class BookController {
         ] );
     }
 
-    public function update_item(){
+    public function update_item( WP_REST_Request $request ) : WP_REST_Response | WP_Error {
+        $post_id = (int) $request->get_param( 'id' );
 
+        if ( ! $post_id || get_post_type( $post_id ) !== 'wmh_book' ) {
+            return new \WP_Error(
+                'rest_book_invalid_id',
+                __( 'Invalid book ID.', 'wp-mastery-hub' ),
+                [ 'status' => 400 ]
+            );
+        }
+
+        // Permission check: can current user edit this post?
+        if ( ! current_user_can( 'edit_post', $post_id ) ) {
+            return new \WP_Error(
+                'rest_forbidden',
+                __( 'You are not allowed to edit this book.', 'wp-mastery-hub' ),
+                [ 'status' => 403 ]
+            );
+        }
+
+        // Prepare updated data, sanitize inputs
+        $data = [];
+
+        if ( $request->get_param( 'title' ) !== null ) {
+            $data['post_title'] = sanitize_text_field( $request->get_param( 'title' ) );
+        }
+        if ( $request->get_param( 'content' ) !== null ) {
+            $data['post_content'] = wp_kses_post( $request->get_param( 'content' ) );
+        }
+        if ( $request->get_param( 'excerpt' ) !== null ) {
+            $data['post_excerpt'] = wp_kses_post( $request->get_param( 'excerpt' ) );
+        }
+        if ( $request->get_param( 'status' ) !== null ) {
+            $data['post_status'] = sanitize_key( $request->get_param( 'status' ) );
+        }
+
+        $data['ID'] = $post_id;
+
+        // Update the post
+        $updated_post_id = wp_update_post( $data, true );
+
+        if ( is_wp_error( $updated_post_id ) ) {
+            return $updated_post_id;
+        }
+
+        // Handle thumbnail update if provided
+        $thumbnail_url = esc_url_raw( $request->get_param( 'thumbnail_url' ) );
+
+        if ( ! empty( $thumbnail_url ) ) {
+            // Optionally remove previous featured image if any
+            $old_thumbnail_id = get_post_thumbnail_id( $post_id );
+            if ( $old_thumbnail_id ) {
+                delete_post_thumbnail( $post_id );
+                // Optionally delete the attachment if you want to remove the file too
+                // wp_delete_attachment( $old_thumbnail_id, true );
+            }
+
+            $media_id = Helper::upload_image_from_url( $thumbnail_url, $post_id );
+
+            if ( ! is_wp_error( $media_id ) ) {
+                set_post_thumbnail( $post_id, $media_id );
+            } else {
+                return new \WP_Error(
+                    'rest_book_thumbnail_error',
+                    __( 'Failed to upload thumbnail image.', 'wp-mastery-hub' ),
+                    [ 'status' => 400 ]
+                );
+            }
+        }
+
+
+        // Return updated post data
+        return rest_ensure_response([
+            'id'            => $post_id,
+            'title'         => get_the_title( $post_id ),
+            'content'       => get_post_field( 'post_content', $post_id ),
+            'excerpt'       => get_post_field( 'post_excerpt', $post_id ),
+            'status'        => get_post_status( $post_id ),
+            'permalink'     => get_permalink( $post_id ),
+            'thumbnail_url' => get_the_post_thumbnail_url( $post_id, 'full' ),
+        ]);
     }
+
+    public function delete_item( WP_REST_Request $request ) : WP_REST_Response | WP_Error {
+        $post_id = (int) $request->get_param( 'id' );
+
+        if ( ! $post_id || get_post_type( $post_id ) !== 'wmh_book' ) {
+            return new WP_Error(
+                'rest_book_invalid_id',
+                __( 'Invalid book ID.', 'wp-mastery-hub' ),
+                [ 'status' => 400 ]
+            );
+        }
+
+        // Check if post exists
+        $post = get_post( $post_id );
+        if ( ! $post ) {
+            return new WP_Error(
+                'rest_book_not_found',
+                __( 'Book not found.', 'wp-mastery-hub' ),
+                [ 'status' => 404 ]
+            );
+        }
+
+        // Optional: permission check - e.g., only allow admins or author
+        if ( ! current_user_can( 'delete_post', $post_id ) ) {
+            return new WP_Error(
+                'rest_forbidden',
+                __( 'You do not have permission to delete this book.', 'wp-mastery-hub' ),
+                [ 'status' => 403 ]
+            );
+        }
+
+        // Delete the post permanently
+        $deleted = wp_delete_post( $post_id, true );
+
+        if ( ! $deleted ) {
+            return new WP_Error(
+                'rest_book_delete_failed',
+                __( 'Failed to delete book.', 'wp-mastery-hub' ),
+                [ 'status' => 500 ]
+            );
+        }
+
+        return rest_ensure_response( [
+            'deleted' => true,
+            'id'      => $post_id,
+            'message' => __( 'Book deleted successfully.', 'wp-mastery-hub' ),
+        ] );
+    }
+
 }
